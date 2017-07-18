@@ -22,9 +22,143 @@ from animal.core.state_plugins.schedule_state_pipeline import (
 
 
 class EntityHistoryState(object):
-    def __init__(self, sub_entity_ids=None, super_entity_ids=None):
-        self._sub_entity_ids = sub_entity_ids
-        self._super_entity_ids = super_entity_ids
+    def __init__(self):
+        self.supers_for_sub = defaultdict(self.make_members_dict)
+        self.subs_for_super = defaultdict(self.make_members_dict)
+        self.is_active_for_entity = defaultdict(self.make_is_active_dict)
+
+    @staticmethod
+    def make_is_active_dict():
+        return {'times': [], 'is_active': []}
+
+    @staticmethod
+    def make_members_dict():
+        return {'times': [], 'members': []}
+
+    def _load_activation_history(self):
+        # this dict will be keyed on (entity_pk, day) and will hold the most recent activation status
+        change_dict = {}
+
+        # really important that this is in the proper order
+        event_history = EntityActivationEvent.objects.all().order_by('entity_id', 'time').values(
+            'entity_id', 'time', 'was_activated')
+
+        # populate the change_dict with activation events
+        for rec in event_history:
+            entity_id = rec['entity_id']
+            start_time = self.localize_time_to_entity(entity_id, rec['time'])
+            start_time = fleming.floor(start_time, days=1)
+
+            # populate a change dict, keyed on entity and day.  The last change of the day will the one used.
+            change_dict[(entity_id, time)] = rec['was_activated']
+
+        # Now that last records for the day are being used, populate the is_active_dict.
+        # It's important to do this ordered by entity-time
+        for (entity_id, time) in sorted(change_dict.keys()):
+            self.is_active_for_entity[entity_id]['times'].append(time)
+            self.is_active_for_entity[entity_id]['is_active'].append(change_dict[(time, entity_id)])
+
+    def _load_relationship_history(self):
+        OKAY I STOPPED HERE.  I NEED TO ADAPT THIS LOGIC FOR HISTORY
+
+
+        """
+        Loads relationship information
+        """
+        # these named tuples are to make the processing  below more readable
+        Event = namedtuple('Event', 'time member_pk was_activated')
+        Members = namedtuple('Members', 'time member_set')
+
+        # grab a list of all account-kind entities
+        account_set = self._get_all_account_entities_set()
+
+        # get a list of relationship data
+        super_history = EntityRelationshipHistorySnapshot.objects.get_sub_entity_time_frames(snapshot=self._snapshot)
+
+        # TODO: Write tests to make sure invalid relationships actually get filtered
+        # don't allow account types as valid super entities
+        super_history = [h for h in super_history if h['super_entity_id'] not in account_set]
+
+        # only consider relationships where the sub_entity is an account kind
+        super_history = [h for h in super_history if h['sub_entity_id'] in account_set]
+
+        # assign the set of all super pks
+        self.all_super_pk_set = frozenset(r['super_entity_id'] for r in super_history)
+
+        # a list of events keyed by entity (either super-entity or sub-entity)
+        # event_list_for_entity[entity_pk] = [Event(), Event(), Event(), ...]
+        event_list_for_entity = defaultdict(list)
+
+        # a list of timestamped memberships keyed by entity (either super or sub)
+        # members_list_for_entity[(entity_pk] = [Members(), Members(), ...]
+        members_list_for_entity = defaultdict(list)
+
+        # populate an event list with activation and deactivation events
+        for rec in super_history:
+            super_pk, sub_pk = rec['super_entity_id'], rec['sub_entity_id']
+            start_time = self.localize_time_to_entity(sub_pk, rec['relationship_start_time'])
+            end_time = rec['relationship_end_time']
+            if end_time is None:
+                # back off from end time so that I don't overrun max time
+                end_time = datetime.datetime.max - datetime.timedelta(days=400)
+            end_time = self.localize_time_to_entity(sub_pk, end_time)
+
+            # add events for finding subs to super
+            event_list_for_entity[super_pk].append(Event(start_time, sub_pk, True))
+            event_list_for_entity[super_pk].append(Event(end_time, sub_pk, False))
+
+            # add events for finding supers for sub
+            event_list_for_entity[sub_pk].append(Event(start_time, super_pk, True))
+            event_list_for_entity[sub_pk].append(Event(end_time, super_pk, False))
+
+        # populate a members list with timestamped memberships for each entity
+        for entity_pk, event_list in event_list_for_entity.items():
+            # make sure events are time ordered
+            event_list.sort()
+
+            # this set keeps a running talley of who is active
+            current_members = set()
+
+            for day, batch_for_day in itertools.groupby(event_list, key=lambda e: e.time.date()):
+                for event in batch_for_day:
+                    if event.was_activated:
+                        current_members.add(event.member_pk)
+                    else:
+                        current_members.discard(event.member_pk)
+                # create a snapshot of the current_members at end of day
+                members_list_for_entity[entity_pk].append(
+                    Members(datetime.datetime.combine(day, datetime.datetime.min.time()), set(current_members)),
+                )
+
+        for entity_pk, members_list in members_list_for_entity.items():
+            for (time, member_set) in members_list:
+                # decide if this record populates sub or super relationship info
+                if entity_pk in self.all_super_pk_set:
+                    relation_dict = self.subs_for_super
+                else:
+                    relation_dict = self.supers_for_sub
+
+                relation_dict[entity_pk]['members'].append(member_set)
+                relation_dict[entity_pk]['times'].append(time)
+
+
+            
+
+    def localize_time_to_entity(self, entity_pk, time):
+        """
+        This function takes a time and localizes it to the timezone of the provided entity_pk
+        """
+        # event time-stamps are in utc
+        event_time = fleming.attach_tz_if_none(time, self.utc)
+
+        entity_time_zone = pytz.timezone(self.tz_lookup[entity_pk])
+
+        try:
+            return fleming.convert_to_tz(event_time, entity_time_zone, return_naive=True)
+        except OverflowError:
+            # handle datetime max overflow at datetime min
+            return fleming.convert_to_tz(event_time + datetime.timedelta(days=7), entity_time_zone, return_naive=True)
+
 
     def get_subs_for_super(self, pk, time, include_self=False):
         pass
