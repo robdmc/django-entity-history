@@ -507,3 +507,12 @@ class GetEntitiesAtTimeTest(TestCase):
             datetime(2013, 2, 4, 13): set([e1.id, e2.id]),
             datetime(2013, 3, 5): set([e2.id]),
         })
+
+
+
+class BitHistTests(TestCase):
+    def test_nothing(self):
+        print
+        print
+        print 'ehllo nothin'
+

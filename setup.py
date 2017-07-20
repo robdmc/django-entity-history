@@ -17,6 +17,14 @@ def get_version():
         raise RuntimeError('Unable to find version string in {0}.'.format(VERSION_FILE))
 
 
+tests_require = [
+    'psycopg2',
+    'django-nose>=1.4',
+    'mock>=1.0.1',
+    'coverage>=3.7.1',
+    'django-dynamic-fixture',
+]
+
 setup(
     name='django-entity-history',
     version=get_version(),
@@ -44,14 +52,9 @@ setup(
         'django>=1.7',
         'django-entity>=1.12.0',
     ],
-    tests_require=[
-        'psycopg2',
-        'django-nose>=1.4',
-        'mock>=1.0.1',
-        'coverage>=3.7.1',
-        'django-dynamic-fixture',
-    ],
+    tests_require=tests_require,
     test_suite='run_tests.run_tests',
+    extras_require={'dev': tests_require},
     include_package_data=True,
     zip_safe=False,
 )
