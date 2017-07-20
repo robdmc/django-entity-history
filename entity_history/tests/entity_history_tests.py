@@ -2,51 +2,59 @@ from datetime import datetime, timedelta
 from dateutil.parser import parse
 
 from django.test import TestCase
-from django_dynamic_fixture import G
+from django_dynamic_fixture import G, N
 from entity.models import Entity
 
 from entity_history.models import (
     get_sub_entities_at_times, EntityRelationshipActivationEvent, get_entities_at_times, EntityActivationEvent,
     EntityHistory, ActiveState
 )
-
+from pandashells import Timer
 
 class BitHistTests(TestCase):
     def test_nothing(self):
 
 
-        values = list(range(9, 15))
-        table = [20, 50, 80]
+        with Timer('creating'):
+            e_list = []
+            for nn in range(2000):
+                e_list.append(N(Entity, display_name='e{:03d}'.format(nn)))
 
-        values = list(range(6))
-        table = [1, 3]
-        ind = ActiveState.objects.get_fill_forward_indexes(values, table)
-
-        print
-        print
-        for v, i in zip(values, ind):
-            print v, i
+            Entity.objects.bulk_create(e_list)
+            e_list = list(Entity.all_objects.all())
 
 
 
 
 
+        epoch = parse('12/1/2014')
+        times = [epoch + timedelta(days=nn) for nn in range(300)]
+        with Timer('snap_shot1'):
+            for nn, day in enumerate(times):
+                entity = e_list[nn]
+                entity.is_active = False
+                entity.save()
+                ActiveState.objects.take_snapshot(assume_now=day)
+
+
+        with Timer('is_active'):
+            xxx = ActiveState.objects.is_active(entity.id, *times)
+        print len(xxx), 'len xxx'
 
 
 
 
 
         return
-        e_list = []
-        for nn in range(20):
-            e_list.append(G(Entity, display_name='e{:03d}'.format(nn)))
-
-        ActiveState.objects.take_snapshot(assume_now=parse('12/1/2014'))
+        with Timer('snap_shot1'):
+            ActiveState.objects.take_snapshot(assume_now=parse('12/1/2014'))
 
         for e in e_list[:5]:
             e.is_active = False
             e.save()
-        ActiveState.objects.take_snapshot(assume_now=parse('12/2/2014'))
+
+        with Timer('snap_shot2'):
+            ActiveState.objects.take_snapshot(assume_now=parse('12/2/2014'))
 
         #st1 = ActiveState.objects.get(time=parse('12/1/2014'))
         #st2 = ActiveState.objects.get(time=parse('12/2/2014'))
@@ -56,7 +64,10 @@ class BitHistTests(TestCase):
         time2 = parse('12/2/2014')
         entity = e_list[0]
 
-        ActiveState.objects.is_active(entity, time1, time2)
+        with Timer('is_active'):
+            xxx = ActiveState.objects.is_active(entity.id, time1, time2)
+        print
+        print xxx
 
 
 
@@ -64,9 +75,6 @@ class BitHistTests(TestCase):
 
 
         return
-        print
-        print st1.active_bits
-        print st2.active_bits
 
 
 

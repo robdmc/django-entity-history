@@ -23,7 +23,7 @@ class ActiveStateManager(models.Manager):
         ).save()
 
     @staticmethod
-    def get_fill_forward_indexes(values, table_values):
+    def get_fill_forward(values, table_values, return_indexes=False):
         """
         Given two lists: values, and table_values, this method will
         return a list of indexes for each value in values.
@@ -41,11 +41,8 @@ class ActiveStateManager(models.Manager):
         if len(values) * len(table_values) == 0:
             raise ValueError('neither values nor table_values can be empty')
 
-        # make sure values are sorted
-        values = sorted(values)
-
         # make a deque out of sorted table values
-        indexed_table_values = deque(enumerate(sorted(table_values)))
+        indexed_table_values = deque(enumerate(table_values))
 
         # initialize an output
         out = []
@@ -69,66 +66,44 @@ class ActiveStateManager(models.Manager):
             # save the output table index
             out.append(this_table_index)
 
-        return out
+        if return_indexes:
+            return out
+        else:
+            return [table_values[ii] if ii is not None else None for ii in out]
 
-    #@staticmethod
-    #def get_fill_forward_indexes(values, table_values):
-    #    # make sure input values are not empty
-    #    if len(values) * len(table_values) == 0:
-    #        raise ValueError('neither values nor table_values can be empty')
+    def check_sorted(self, in_list):
+        if in_list and not all(in_list[ii] <= in_list[ii + 1] for ii in xrange(len(in_list) - 1)):
+            raise ValueError('List is not sorted')
 
-    #    # sort all input values
-    #    values = sorted(values)
-    #    table_values = sorted(table_values)
+    def is_active(self, entity_id, *times):
+        """
+        Returns whether or not an entity is active at specified times
+        """
+        # make sure input times are sorted
+        self.check_sorted(times)
 
-    #    # make an indexed list of table values
-    #    indexed_table_values = list(enumerate(table_values))
+        active_times, active_state_ids = zip(*ActiveState.objects.all().order_by('time').values_list('time', 'id'))
 
-    #    # make another list holding tuples of (this_indexed_value, next_indexed_value)
-    #    indexed_table_pairs = deque(zip(indexed_table_values[:-1], indexed_table_values[1:]))
+        current_indexes = self.get_fill_forward(times, active_times, return_indexes=True)
 
-    #    # initialize an output
-    #    out = []
+        loaded_id = None
+        out = []
+        for time, current_index in zip(times, current_indexes):
+            if current_index is None:
+                out.append(False)
+                continue
 
-    #    # get the first pair and extract values
-    #    this_indexed_value, next_indexed_value = indexed_table_pairs.popleft()
-    #    this_table_value, next_table_value = this_indexed_value[1], next_indexed_value[1]
+            current_id = active_state_ids[current_index]
+            if current_id != loaded_id:
+                state = ActiveState.objects.get(id=current_id)
+                loaded_id = current_id
 
-    #    # initialize an output index
-    #    this_index = None
+            out.append(state.is_active(entity_id))
 
-    #    # loop over all values
-    #    for value in values:
-    #        # find the value such that the next table_value is bigger than this table_value
-    #        while indexed_table_pairs and next_table_value <= value:
-    #            this_indexed_value, next_indexed_value = indexed_table_pairs.popleft()
-    #            next_table_value = next_indexed_value[1]
-    #            this_index = this_indexed_value[0]
-    #        out.append(this_index)
-
-    #    return out
-
-
-
-
-
-    #def is_active(self, entity, *times):
-    #    times = sorted(times)
-    #    active_times, state_ids = zip(*ActiveState.objects.all().order_by('time').values_list('time', 'id'))
-
-    #    active_index = 0
-    #    for time in times:
-    #        active_time = active_times[active_index]
-
-    #        while active_time < time:
-    #            active_index += 1
-    #            active_time = active_times[active_index]
-
-    #        state = ActiveState.objects.filter(
-
-
-
-
+        if len(out) == 1:
+            return out[0]
+        else:
+            return out
 
 
 class ActiveState(models.Model):
@@ -147,10 +122,9 @@ class ActiveState(models.Model):
         self._index_map = None
         self._active_bits = None
 
-
     @property
     def index_map(self):
-        if  self._index_map is None:
+        if self._index_map is None:
             self._index_map = {eid: nn for (nn, eid) in enumerate(self.entity_ids)}
         return self._index_map
 
@@ -162,17 +136,19 @@ class ActiveState(models.Model):
             self._active_bits = self._active_bits[:len(self.index_map)]
         return self._active_bits
 
+    def is_active(self, *entity_ids):
+        out = []
+        for entity_id in entity_ids:
+            ind = self.index_map.get(entity_id, None)
+            if ind is not None:
+                out.append(self.active_bits[ind])
+            else:
+                out.append(False)
 
-
-
-
-
-
-
-
-
-
-
+        if len(out) == 1:
+            return out[0]
+        else:
+            return out
 
 
 class EntityActivationEvent(models.Model):
