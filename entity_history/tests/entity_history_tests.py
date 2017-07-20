@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil.parser import parse
 
 from django.test import TestCase
 from django_dynamic_fixture import G
@@ -6,8 +7,121 @@ from entity.models import Entity
 
 from entity_history.models import (
     get_sub_entities_at_times, EntityRelationshipActivationEvent, get_entities_at_times, EntityActivationEvent,
-    EntityHistory
+    EntityHistory, ActiveState
 )
+
+
+class BitHistTests(TestCase):
+    def test_nothing(self):
+
+
+        values = list(range(9, 15))
+        table = [20, 50, 80]
+
+        values = list(range(6))
+        table = [1, 3]
+        ind = ActiveState.objects.get_fill_forward_indexes(values, table)
+
+        print
+        print
+        for v, i in zip(values, ind):
+            print v, i
+
+
+
+
+
+
+
+
+
+
+        return
+        e_list = []
+        for nn in range(20):
+            e_list.append(G(Entity, display_name='e{:03d}'.format(nn)))
+
+        ActiveState.objects.take_snapshot(assume_now=parse('12/1/2014'))
+
+        for e in e_list[:5]:
+            e.is_active = False
+            e.save()
+        ActiveState.objects.take_snapshot(assume_now=parse('12/2/2014'))
+
+        #st1 = ActiveState.objects.get(time=parse('12/1/2014'))
+        #st2 = ActiveState.objects.get(time=parse('12/2/2014'))
+
+
+        time1 = parse('12/1/2014')
+        time2 = parse('12/2/2014')
+        entity = e_list[0]
+
+        ActiveState.objects.is_active(entity, time1, time2)
+
+
+
+
+
+
+        return
+        print
+        print st1.active_bits
+        print st2.active_bits
+
+
+
+
+
+    #def test_nothing(self):
+    #    e_list = []
+    #    for nn in range(20):
+    #        e_list.append(G(Entity, display_name='e{:03d}'.format(nn)))
+
+    #    ids = [e.id for e in e_list]
+
+    #    epoch = datetime(2014, 12, 1)
+    #    EntityActivationEvent.objects.all().update(time=epoch)
+
+    #    epoch = datetime(2014, 12, 10)
+    #    for ev in EntityActivationEvent.objects.filter(entity_id__in=ids[:10]):
+    #        ev.id = None
+    #        ev.time = epoch
+    #        ev.was_activated = False
+    #        ev.save()
+
+    #    epoch = datetime(2014, 12, 20)
+    #    for ev in EntityActivationEvent.objects.filter(entity_id__in=ids[:5], was_activated=False):
+    #        ev.id = None
+    #        ev.time = epoch
+    #        ev.was_activated = True
+    #        ev.save()
+
+
+
+
+    #    for ev in EntityActivationEvent.objects.all():
+    #        print ev.entity_id, ev.time, ev.was_activated
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class EntityManagerTest(TestCase):
@@ -509,10 +623,4 @@ class GetEntitiesAtTimeTest(TestCase):
         })
 
 
-
-class BitHistTests(TestCase):
-    def test_nothing(self):
-        print
-        print
-        print 'ehllo nothin'
 

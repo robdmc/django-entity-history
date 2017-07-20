@@ -1,5 +1,178 @@
+from datetime import datetime
+from collections import deque
+
+from bitarray import bitarray
 from django.db import models
 from entity.models import Entity, EntityQuerySet, AllEntityManager
+from django.contrib.postgres.fields import ArrayField
+
+
+class ActiveStateManager(models.Manager):
+    def take_snapshot(self, assume_now=None):
+        if assume_now is None:
+            now = datetime.utcnow()
+        else:
+            now = assume_now
+
+        entity_tups = Entity.all_objects.all().order_by('id').values_list('id', 'is_active')
+        activations = bitarray((t[1] for t in entity_tups)).tobytes()
+        ActiveState(
+            time=now,
+            entity_ids=[t[0] for t in entity_tups],
+            activations=activations
+        ).save()
+
+    @staticmethod
+    def get_fill_forward_indexes(values, table_values):
+        """
+        Given two lists: values, and table_values, this method will
+        return a list of indexes for each value in values.
+
+        Each index will point to the largest value in table_values that is
+        less than the corresponding value in values
+        So, for example
+        Inputs:
+            values = [0, 1, 2, 3, 4, 5]
+            table_values = [1, 3]
+        Returns:
+                  [None, 0, 0, 1, 1, 1]
+        """
+        # make sure input values are not empty
+        if len(values) * len(table_values) == 0:
+            raise ValueError('neither values nor table_values can be empty')
+
+        # make sure values are sorted
+        values = sorted(values)
+
+        # make a deque out of sorted table values
+        indexed_table_values = deque(enumerate(sorted(table_values)))
+
+        # initialize an output
+        out = []
+
+        # initialize what will be the output index unless it is overwritten
+        this_table_index = None
+
+        # pop the first index and value off of the table and set them as "next"
+        next_table_index, next_table_value = indexed_table_values.popleft()
+
+        # loop over all values
+        for value in values:
+            # find the value such that the next table_value is bigger than this table_value
+            while next_table_value <= value:
+                if indexed_table_values:
+                    next_table_index, next_table_value = indexed_table_values.popleft()
+                    this_table_index = next_table_index - 1
+                else:
+                    this_table_index = next_table_index
+                    break
+            # save the output table index
+            out.append(this_table_index)
+
+        return out
+
+    #@staticmethod
+    #def get_fill_forward_indexes(values, table_values):
+    #    # make sure input values are not empty
+    #    if len(values) * len(table_values) == 0:
+    #        raise ValueError('neither values nor table_values can be empty')
+
+    #    # sort all input values
+    #    values = sorted(values)
+    #    table_values = sorted(table_values)
+
+    #    # make an indexed list of table values
+    #    indexed_table_values = list(enumerate(table_values))
+
+    #    # make another list holding tuples of (this_indexed_value, next_indexed_value)
+    #    indexed_table_pairs = deque(zip(indexed_table_values[:-1], indexed_table_values[1:]))
+
+    #    # initialize an output
+    #    out = []
+
+    #    # get the first pair and extract values
+    #    this_indexed_value, next_indexed_value = indexed_table_pairs.popleft()
+    #    this_table_value, next_table_value = this_indexed_value[1], next_indexed_value[1]
+
+    #    # initialize an output index
+    #    this_index = None
+
+    #    # loop over all values
+    #    for value in values:
+    #        # find the value such that the next table_value is bigger than this table_value
+    #        while indexed_table_pairs and next_table_value <= value:
+    #            this_indexed_value, next_indexed_value = indexed_table_pairs.popleft()
+    #            next_table_value = next_indexed_value[1]
+    #            this_index = this_indexed_value[0]
+    #        out.append(this_index)
+
+    #    return out
+
+
+
+
+
+    #def is_active(self, entity, *times):
+    #    times = sorted(times)
+    #    active_times, state_ids = zip(*ActiveState.objects.all().order_by('time').values_list('time', 'id'))
+
+    #    active_index = 0
+    #    for time in times:
+    #        active_time = active_times[active_index]
+
+    #        while active_time < time:
+    #            active_index += 1
+    #            active_time = active_times[active_index]
+
+    #        state = ActiveState.objects.filter(
+
+
+
+
+
+
+class ActiveState(models.Model):
+    """
+    Models an event of an entity being activated or deactivated.
+    """
+    time = models.DateTimeField(db_index=True)
+    entity_ids = ArrayField(models.IntegerField())
+    activations = models.BinaryField(null=True)
+
+    objects = ActiveStateManager()
+
+    def __init__(self, *args, **kwargs):
+        super(ActiveState, self).__init__(*args, **kwargs)
+
+        self._index_map = None
+        self._active_bits = None
+
+
+    @property
+    def index_map(self):
+        if  self._index_map is None:
+            self._index_map = {eid: nn for (nn, eid) in enumerate(self.entity_ids)}
+        return self._index_map
+
+    @property
+    def active_bits(self):
+        if self._active_bits is None:
+            self._active_bits = bitarray()
+            self._active_bits.frombytes(bytes(self.activations))
+            self._active_bits = self._active_bits[:len(self.index_map)]
+        return self._active_bits
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class EntityActivationEvent(models.Model):
@@ -132,3 +305,7 @@ class EntityHistory(Entity):
 
     objects = ActiveEntityHistoryManager()
     all_objects = AllEntityHistoryManager()
+
+
+
+
