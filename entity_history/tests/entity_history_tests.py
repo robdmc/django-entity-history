@@ -1,135 +1,85 @@
 from datetime import datetime, timedelta
 from dateutil.parser import parse
+import itertools
 
 from django.test import TestCase
-from django_dynamic_fixture import G, N
+from django_dynamic_fixture import G
 from entity.models import Entity
 
 from entity_history.models import (
     get_sub_entities_at_times, EntityRelationshipActivationEvent, get_entities_at_times, EntityActivationEvent,
     EntityHistory, ActiveState
 )
-from pandashells import Timer
+
 
 class BitHistTests(TestCase):
-    def test_nothing(self):
+    def test_time_activity(self):
+        # create entities
+        e_list = []
+        N = 10
+        for nn in range(N):
+            e_list.append(G(Entity, display_name='e{:03d}'.format(nn)))
 
-
-        with Timer('creating'):
-            e_list = []
-            for nn in range(2000):
-                e_list.append(N(Entity, display_name='e{:03d}'.format(nn)))
-
-            Entity.objects.bulk_create(e_list)
-            e_list = list(Entity.all_objects.all())
-
-
-
-
-
+        # create a list of times at which to change entity activations
         epoch = parse('12/1/2014')
-        times = [epoch + timedelta(days=nn) for nn in range(300)]
-        with Timer('snap_shot1'):
-            for nn, day in enumerate(times):
-                entity = e_list[nn]
-                entity.is_active = False
-                entity.save()
-                ActiveState.objects.take_snapshot(assume_now=day)
+        times = [epoch + timedelta(days=nn) for nn in range(N)]
 
+        # deactivate one entity per day for a number of days and take a snapshot
+        for nn, day in enumerate(times):
+            entity = e_list[nn]
+            entity.is_active = False
+            entity.save()
+            ActiveState.objects.take_snapshot(assume_now=day)
 
-        with Timer('is_active'):
-            xxx = ActiveState.objects.is_active(entity.id, *times)
-        print len(xxx), 'len xxx'
+        # make a matrix of activations
+        matrix = []
+        for e in e_list:
+            matrix.append([int(a) for a in ActiveState.objects.time_activity(e.id, *times)])
 
+        # make sure the matrix is lower triangular
+        for row, col in itertools.product(range(N), range(N)):
+            rc = matrix[row][col]
+            cr = matrix[col][row]
+            if row == col:
+                self.assertEqual(rc, 0)
+                self.assertEqual(cr, 0)
+            else:
+                self.assertEquals(cr + rc, 1)
+                self.assertEquals(cr * rc, 0)
 
+    def test_entity_activity(self):
+        # create entities
+        e_list = []
+        N = 10
+        for nn in range(N):
+            e_list.append(G(Entity, display_name='e{:03d}'.format(nn)))
 
+        # create a list of times at which to change entity activations
+        epoch = parse('12/1/2014')
+        times = [epoch + timedelta(days=nn) for nn in range(N)]
 
+        # deactivate one entity per day for a number of days and take a snapshot
+        for nn, day in enumerate(times):
+            entity = e_list[nn]
+            entity.is_active = False
+            entity.save()
+            ActiveState.objects.take_snapshot(assume_now=day)
 
-        return
-        with Timer('snap_shot1'):
-            ActiveState.objects.take_snapshot(assume_now=parse('12/1/2014'))
+        # make a matrix of activations
+        matrix = []
+        for time in times:
+            matrix.append([int(a) for a in ActiveState.objects.entity_activity(time, *[e.id for e in e_list])])
 
-        for e in e_list[:5]:
-            e.is_active = False
-            e.save()
-
-        with Timer('snap_shot2'):
-            ActiveState.objects.take_snapshot(assume_now=parse('12/2/2014'))
-
-        #st1 = ActiveState.objects.get(time=parse('12/1/2014'))
-        #st2 = ActiveState.objects.get(time=parse('12/2/2014'))
-
-
-        time1 = parse('12/1/2014')
-        time2 = parse('12/2/2014')
-        entity = e_list[0]
-
-        with Timer('is_active'):
-            xxx = ActiveState.objects.is_active(entity.id, time1, time2)
-        print
-        print xxx
-
-
-
-
-
-
-        return
-
-
-
-
-
-    #def test_nothing(self):
-    #    e_list = []
-    #    for nn in range(20):
-    #        e_list.append(G(Entity, display_name='e{:03d}'.format(nn)))
-
-    #    ids = [e.id for e in e_list]
-
-    #    epoch = datetime(2014, 12, 1)
-    #    EntityActivationEvent.objects.all().update(time=epoch)
-
-    #    epoch = datetime(2014, 12, 10)
-    #    for ev in EntityActivationEvent.objects.filter(entity_id__in=ids[:10]):
-    #        ev.id = None
-    #        ev.time = epoch
-    #        ev.was_activated = False
-    #        ev.save()
-
-    #    epoch = datetime(2014, 12, 20)
-    #    for ev in EntityActivationEvent.objects.filter(entity_id__in=ids[:5], was_activated=False):
-    #        ev.id = None
-    #        ev.time = epoch
-    #        ev.was_activated = True
-    #        ev.save()
-
-
-
-
-    #    for ev in EntityActivationEvent.objects.all():
-    #        print ev.entity_id, ev.time, ev.was_activated
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        # make sure the matrix is lower triangular
+        for row, col in itertools.product(range(N), range(N)):
+            rc = matrix[row][col]
+            cr = matrix[col][row]
+            if row == col:
+                self.assertEqual(rc, 0)
+                self.assertEqual(cr, 0)
+            else:
+                self.assertEquals(cr + rc, 1)
+                self.assertEquals(cr * rc, 0)
 
 
 class EntityManagerTest(TestCase):

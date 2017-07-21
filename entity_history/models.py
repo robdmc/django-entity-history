@@ -75,7 +75,7 @@ class ActiveStateManager(models.Manager):
         if in_list and not all(in_list[ii] <= in_list[ii + 1] for ii in xrange(len(in_list) - 1)):
             raise ValueError('List is not sorted')
 
-    def is_active(self, entity_id, *times):
+    def time_activity(self, entity_id, *times):
         """
         Returns whether or not an entity is active at specified times
         """
@@ -104,6 +104,17 @@ class ActiveStateManager(models.Manager):
             return out[0]
         else:
             return out
+
+    def entity_activity(self, time, *entities):
+        """
+        Returns which entities are active for a given time
+        """
+        qs = ActiveState.objects.filter(time__lte=time).order_by('-time')
+        if not qs.exists():
+            return [False for e in entities]
+
+        state = qs.first()
+        return state.is_active(*entities)
 
 
 class ActiveState(models.Model):
